@@ -1,0 +1,33 @@
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+
+// Crée un client avec une authentification locale (pas besoin de scanner à chaque fois)
+const client = new Client({
+    authStrategy: new LocalAuth()
+});
+
+// Affiche le QR code dans le terminal
+client.on('qr', (qr) => {
+    console.log('\n=== SCANNE CE CODE QR AVEC TON TÉLÉPHONE ===\n');
+    qrcode.generate(qr, { small: true });
+});
+
+// Confirmation de connexion
+client.on('ready', () => {
+    console.log('\n✅ Bot connecté à WhatsApp Web !');
+});
+
+// Quand un message est reçu
+client.on('message', async message => {
+    console.log(`Message reçu de ${message.from}: ${message.body}`);
+
+    // Exemple de réponse automatique
+    if (message.body.toLowerCase().includes("salut")) {
+        message.reply("Salut ! Je suis un bot IA connecté à WhatsApp.");
+    } else {
+        message.reply("Je suis encore en phase de test, dis 'salut' pour voir une réponse !");
+    }
+});
+
+// Lance le client
+client.initialize();
