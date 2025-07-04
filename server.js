@@ -8,6 +8,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { generateGeminiResponse } from "./lib/gemini.js";
+import fs from "fs";
 
 // Chargement des variables d'environnement
 dotenv.config();
@@ -32,6 +33,8 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
+
+app.use(express.json({ limit: "5mb" }));
 
 // --- Initialisation du client WhatsApp ---
 const waClient = new Client({
@@ -64,6 +67,7 @@ waClient.on("auth_failure", (msg) => {
 // --- Gestion des messages entrants ---
 waClient.on("message", async (message) => {
   try {
+    io.emit("wa-message", { from: message.from, body: message.body });
     // Préfixe pour demander l'IA
     if (message.body.startsWith("!ai")) {
       const userPrompt = message.body.replace("!ai", "").trim();
@@ -71,6 +75,7 @@ waClient.on("message", async (message) => {
 
       // Envoi du texte généré
       await message.reply(aiText);
+      io.emit("wa-message", { from: "bot", body: aiText });
 
       // Envoi d'une image thématique, si disponible
       if (imagePath) {
@@ -80,6 +85,42 @@ waClient.on("message", async (message) => {
     }
   } catch (err) {
     console.error("Erreur lors du traitement du message :", err);
+  }
+});
+
+// --- Endpoints API ---
+app.post("/api/ai", async (req, res) => {
+  const { prompt = "" } = req.body || {};
+  if (!prompt.trim()) {
+    return res.status(400).json({ error: "Prompt requis" });
+  }
+  try {
+    const { text, imagePath } = await generateGeminiResponse(prompt);
+    let imageBase64 = null;
+    if (imagePath) {
+      const abs = path.join(__dirname, imagePath);
+      const buff = fs.readFileSync(abs);
+      const mime = path.extname(abs) === ".png" ? "image/png" : "image/jpeg";
+      imageBase64 = `data:${mime};base64,${buff.toString("base64")}`;
+    }
+    res.json({ text, image: imageBase64 });
+  } catch (err) {
+    console.error("/api/ai error:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+app.post("/api/send", async (req, res) => {
+  const { to = "", text = "" } = req.body || {};
+  if (!to || !text) {
+    return res.status(400).json({ error: "Champ 'to' et 'text' requis" });
+  }
+  try {
+    await waClient.sendMessage(to, text);
+    res.json({ status: "sent" });
+  } catch (err) {
+    console.error("/api/send error:", err);
+    res.status(500).json({ error: "Envoi échoué" });
   }
 });
 
